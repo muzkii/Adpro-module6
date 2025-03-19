@@ -101,3 +101,53 @@ In this milestone, I extended the basic TCP server to handle and respond to HTTP
 
 I also now know how file reading works in Rust using the `fs::read_to_string` function. The function uses the parameter `hello.html`, in the full code `fs::read_to_string("hello.html").unwrap()` reads the contents of the HTML file named `hello.html`. The use of `unwrap()` assumes the file is present, and if not, the program will panic.
 
+
+### Commit 3 Reflection Notes: Validating Request and Selectively Responding
+
+| PNG File | Image |
+| ----- | ----- |
+| commit3.png | ![commit3](https://github.com/user-attachments/assets/c81bf0aa-0182-4a64-be9a-7aead0b9b771) |
+
+**Current Code:**
+```Rust
+use std::{
+    fs,
+    io::{prelude::*, BufReader},
+    net::{TcpListener, TcpStream},
+};
+
+
+fn main() {
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+
+
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+
+
+        handle_connection(stream);
+    }
+}
+
+
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&mut stream);
+    let request_line = buf_reader.lines().next().unwrap().unwrap();
+    
+    let (status_line, filename) = if request_line == "GET / HTTP/1.1" {
+        ("HTTP/1.1 200 OK", "hello.html")
+    } else {
+        ("HTTP/1.1 404 NOT FOUND", "404.html")
+    };
+
+    let contents = fs::read_to_string(filename).unwrap();
+    let length = contents.len();
+
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+    stream.write_all(response.as_bytes()).unwrap();
+}
+```
+
+This milestone introduced conditional responses based on the request path. I implemented such that the implementation allowed the server to differentiate valid routes and return a 404 page for invalid ones. By using pattern matching on the request line, I understood the basics of Rust's pattern matching capabilities. By applying some refactoring also based on [Validating Request and Selectively Responding, A Touch of Refactoring](https://doc.rust-lang.org/stable/book/ch21-01-single-threaded.html?highlight=validating%20the%20request#validating-the-request-and-selectively-responding). 
+
+Additionally, I explored error handling when reading files that may not exist (`404.html`). By modifying the previous `hello.html` to display an error based on an ERROR 404 response. On `handle_connection` function, the server now checks the request line (first line of the incoming request) to determine the requested path. By using `.lines().next()` to extract the first line, I identified the requested resource (like / for the root path). The condition `if request_line == "GET / HTTP/1.1"` specifically checks for a request to the root (/). If the path is not the root, a 404 error response is returned.
