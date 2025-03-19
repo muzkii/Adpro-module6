@@ -344,3 +344,87 @@ impl Worker {
 ```
 
 Creating a thread pool improved the server's ability to handle multiple requests concurrently. This experience also demonstrated Rust's emphasis on safety, as it required understanding ownership, borrowing, and synchronization to avoid data races.
+
+### Commit Reflection Bonus: Function Improvement
+
+In this milestone, I added a new function called build to replace the `new` method for constructing a ThreadPool. The main goal was to handle potential errors gracefully during the creation process, making the pool more robust.
+
+**Added Function and Code in `lib.rs`**:
+```Rust
+...
+#[derive(Debug)]
+pub struct PoolCreationError;
+...
+
+    pub fn build(size: usize) -> Result<ThreadPool, PoolCreationError> {
+        if size == 0 {
+            return Err(PoolCreationError);
+        }
+
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+
+        Ok(ThreadPool { workers, sender })
+    }
+...
+```
+
+Initially, the `new` method used an `assert!(size > 0);` statement to ensure the size was greater than zero. While effective, it could abruptly terminate the program in case of an invalid size, which is not ideal for production-level code. The `build` method improves upon this by returning a Result<ThreadPool, PoolCreationError> instead of panicking. and providing better error handling with a custom error type (PoolCreationError).
+
+**Comparison:**
+
+- Before:
+`new` method
+```Rust
+    pub fn new(size: usize) -> ThreadPool {
+        assert!(size > 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+
+        ThreadPool { workers, sender }
+    }
+```
+Here, the `new` method uses `assert!` for size validation, which it would panic if the size is invalid. It returns a fully initialized `ThreadPool`
+
+- After:
+`build` method
+```Rust
+    pub fn build(size: usize) -> Result<ThreadPool, PoolCreationError> {
+        if size == 0 {
+            return Err(PoolCreationError);
+        }
+
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+
+        Ok(ThreadPool { workers, sender })
+    }
+```
+Here, the `build` returns a `Result` which would make error handling explicit. It allows calling the function to handle errors without crashing. If we compare it to the `new` method, it is more suitable because when we're talking about web production, graceful error recovery is essential rather than panics.
+
+**Changed Code in `main.rs`**:
+```Rust
+...
+let pool = ThreadPool::build(4).expect("Failed to create thread pool");
+...
+```
+By using `.expect()`, we still get a panic if pool creation fails, but it's now a controlled panic with a meaningful error message. If needed, we could replace `expect` with proper error handling.
