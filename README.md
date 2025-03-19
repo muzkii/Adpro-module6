@@ -185,3 +185,162 @@ In this milestone, I simulated a slow response by adding a delay using `thread::
 Based on the code snippet above, the server now checks the request line and matches it againts two possible paths: `/` and `/sleep`. If the `/sleep` path is accessed, the server sleeps for 10 seconds before responding. The simulated delay would mimic the scenanarios where there are multiple users that is currently accessing the web server. 
 
 This exercise demonstrated the limitations of a single-threaded approach, especially when handling multiple clients simultaneously. It showed the importance of concurrency in server programming and highlighted potential issues with blocking operations in a real-world scenario.
+
+### Commit 5 Reflection Notes: Multithreaded Server using Threadpool
+
+**Changed Code:** `main.rs`
+```Rust
+use std::{
+    fs,
+    io::{prelude::*, BufReader},
+    net::{TcpListener, TcpStream},
+    thread,
+    time::Duration,
+};
+
+use hello::ThreadPool;
+
+fn main() {
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
+
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+        
+        pool.execute(|| {
+            handle_connection(stream);
+        });
+    }
+}
+...
+```
+Based on [Turning Our Single-Threaded Server into a Multithreaded Server](https://doc.rust-lang.org/stable/book/ch21-02-multithreaded.html), we refactored the server to leverage a multi-threaded thread pool using a dedicated `lib.rs` file. By integrating the ThreadPool, we efficiently managed multiple client requests simultaneously, improving the server's responsiveness and scalability.
+
+First of all, we need to implement the `lib.rs` file to use ThreadPool in `main.rs`. So, we have created this `lib.rs` file as follows:
+
+```Rust
+use std::{
+    sync::{mpsc, Arc, Mutex},
+    thread::{self, JoinHandle},
+};
+
+pub struct ThreadPool {
+    workers: Vec<Worker>,
+    sender: mpsc::Sender<Job>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl ThreadPool {
+    /// Create a new ThreadPool.
+    ///
+    /// The size is the number of threads in the pool.
+    ///
+    pub fn new(size: usize) -> ThreadPool {
+        assert!(size > 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+
+        ThreadPool { workers, sender }
+    }
+
+    pub fn execute<F>(&self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
+    }
+}
+
+struct Worker {
+    id: usize,
+    thread: thread::JoinHandle<()>,
+}
+
+impl Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+
+            println!("Worker {id} got a job; executing.");
+
+            job();
+        });
+
+        Worker { id, thread }
+    }
+}
+```
+
+1. The ThreadPool struct has two main components:
+- `workers`: A vector of Worker structs representing individual threads.
+- `sender`: A `mpsc::Sender<Job>` for sending tasks to the workers.
+
+The type alias `Job` defines a boxed closure `(Box<dyn FnOnce() + Send + 'static>)` that can be sent across threads by `type Job = Box<dyn FnOnce() + Send + 'static>;`
+
+2. Creating a New Thread Pool:
+The new method initializes the thread pool with a specified number of worker threads (size).
+It uses a multi-producer, single-consumer (mpsc) channel to communicate between the main thread and worker threads.
+
+```Rust
+pub fn new(size: usize) -> ThreadPool {
+    assert!(size > 0);
+
+    let (sender, receiver) = mpsc::channel();
+    let receiver = Arc::new(Mutex::new(receiver));
+
+    let mut workers = Vec::with_capacity(size);
+
+    for id in 0..size {
+        workers.push(Worker::new(id, Arc::clone(&receiver)));
+    }
+
+    ThreadPool { workers, sender }
+}
+```
+3. Executing Tasks:
+The execute method is responsible for sending a task to the available worker threads. It boxes the task `(FnOnce() + Send + 'static)` to fit the defined Job type. As follows:
+
+```Rust
+pub fn execute<F>(&self, f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let job = Box::new(f);
+    self.sender.send(job).unwrap();
+}
+```
+
+4. The Worker Struct and Thread Handling:
+Each Worker has an id and a thread (a JoinHandle).
+The new method spawns a thread that continuously waits for jobs through the shared receiver.
+The receiver is locked using receiver.lock().unwrap(), ensuring exclusive access to the job queue.
+
+```Rust
+struct Worker {
+    id: usize,
+    thread: thread::JoinHandle<()>,
+}
+
+impl Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+            println!("Worker {id} got a job; executing.");
+            job();
+        });
+
+        Worker { id, thread }
+    }
+}
+```
+
+Creating a thread pool improved the server's ability to handle multiple requests concurrently. This experience also demonstrated Rust's emphasis on safety, as it required understanding ownership, borrowing, and synchronization to avoid data races.
