@@ -50,3 +50,54 @@ Request: [
 ```
 
 I also explored the `BufReader` and the `.lines()` iterator to read the HTTP request from the browser. This allowed me to understand the structure of a basic HTTP request, including the request method (`GET`), path, and headers. Understanding this low-level detail helps to see what happens behind the scenes when accessing web pages through a browser.
+
+### Commit 2 Reflection Notes: Returning HTML
+
+| PNG File | Image |
+| ----- | ----- |
+| commit2.png | ![Commit2screencapture](https://github.com/user-attachments/assets/125bba01-7c1e-4196-8ee0-a91d8fc24bdf) |
+
+**Current Code:**
+```Rust
+use std::{
+    fs,
+    io::{prelude::*, BufReader},
+    net::{TcpListener, TcpStream},
+};
+
+
+fn main() {
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+
+
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+
+
+        handle_connection(stream);
+    }
+}
+
+
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&mut stream);
+    let http_request: Vec<_> = buf_reader
+        .lines()
+        .map(|result| result.unwrap())
+        .take_while(|line| !line.is_empty())
+        .collect();
+
+
+    let status_line = "HTTP/1.1 200 OK";
+    let contents = fs::read_to_string("hello.html").unwrap();
+    let length = contents.len();
+
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+    stream.write_all(response.as_bytes()).unwrap();
+}
+```
+
+In this milestone, I extended the basic TCP server to handle and respond to HTTP requests with a simple HTML page. By enhancing the `handle_connection` function, I learned how to construct an HTTP response in Rust manually and send it back to the client's browser.
+
+I also now know how file reading works in Rust using the `fs::read_to_string` function. The function uses the parameter `hello.html`, in the full code `fs::read_to_string("hello.html").unwrap()` reads the contents of the HTML file named `hello.html`. The use of `unwrap()` assumes the file is present, and if not, the program will panic.
+
