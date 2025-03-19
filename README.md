@@ -151,3 +151,37 @@ fn handle_connection(mut stream: TcpStream) {
 This milestone introduced conditional responses based on the request path. I implemented such that the implementation allowed the server to differentiate valid routes and return a 404 page for invalid ones. By using pattern matching on the request line, I understood the basics of Rust's pattern matching capabilities. By applying some refactoring also based on [Validating Request and Selectively Responding, A Touch of Refactoring](https://doc.rust-lang.org/stable/book/ch21-01-single-threaded.html?highlight=validating%20the%20request#validating-the-request-and-selectively-responding). 
 
 Additionally, I explored error handling when reading files that may not exist (`404.html`). By modifying the previous `hello.html` to display an error based on an ERROR 404 response. On `handle_connection` function, the server now checks the request line (first line of the incoming request) to determine the requested path. By using `.lines().next()` to extract the first line, I identified the requested resource (like / for the root path). The condition `if request_line == "GET / HTTP/1.1"` specifically checks for a request to the root (/). If the path is not the root, a 404 error response is returned.
+
+### Commit 4 Reflection Notes: Simulating Slow Requests
+
+**Changed Code:**
+```Rust
+use std::thread;
+use std::time::Duration;
+
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&mut stream);
+    let request_line = buf_reader.lines().next().unwrap().unwrap();
+    
+    let (status_line, filename) = match request_line.as_str() {
+        "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
+        "GET /sleep HTTP/1.1" => {
+            thread::sleep(Duration::from_secs(10));
+            ("HTTP/1.1 200 OK", "hello.html")
+        }
+        _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
+    };
+
+    let contents = fs::read_to_string(filename).unwrap();
+    let length = contents.len();
+
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+    stream.write_all(response.as_bytes()).unwrap();
+}
+```
+
+In this milestone, I simulated a slow response by adding a delay using `thread::sleep`. By accessing `/sleep` path and the default route simultaneously in multiple browser windows, I observed how the single-threaded server handled requests sequentially, causing delays for all requests.
+
+Based on the code snippet above, the server now checks the request line and matches it againts two possible paths: `/` and `/sleep`. If the `/sleep` path is accessed, the server sleeps for 10 seconds before responding. The simulated delay would mimic the scenanarios where there are multiple users that is currently accessing the web server. 
+
+This exercise demonstrated the limitations of a single-threaded approach, especially when handling multiple clients simultaneously. It showed the importance of concurrency in server programming and highlighted potential issues with blocking operations in a real-world scenario.
